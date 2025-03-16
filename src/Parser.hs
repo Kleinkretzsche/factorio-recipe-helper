@@ -18,16 +18,14 @@ data Lua_Value
 
 type Recipe_Map = Map String Recipe
 
-data Ingredient = Ingredient
-  { kind :: String
-  , name :: String
-  , amount :: Int
-  } deriving (Show, Eq)
+data Part = { kind :: String, amount :: Float }deriving(Show)
+type Ingredient = (String, Part)
+data Ingredients = Map String (String, Float)
 
 data Recipe = Recipe 
-  { _name :: String
-  , _ingredients :: [Ingredient]
-  , _results :: [Ingredient]
+  { name :: String
+  , ingredients :: Ingredients
+  , results :: Ingredients
   } deriving (Show, Eq)
 
 whitespace :: Parser ()
@@ -125,7 +123,7 @@ ingred_from_obj :: Lua_Value -> Maybe Ingredient
 ingred_from_obj o@(Lua_Object _) = 
   case (sequenceA $ map (\x -> Map.lookup x $ obj_to_map o) fields) of 
     Just [(Lua_String t), (Lua_String n), (Lua_Int a)] 
-      -> Just $ Ingredient t n a
+      -> Just $ (n, (t, a))
     _ -> Nothing
   where 
     fields = ["type", "name", "amount"]
