@@ -1,4 +1,8 @@
-module Parser (lua_document, Lua_Value (..)) where
+module Parser where
+
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+import Prelude hiding (lookup)
 
 import Text.Parsec
 import Text.Parsec.String (Parser)
@@ -11,6 +15,20 @@ data Lua_Value
   |  Lua_Array [Lua_Value] 
   |  Lua_Object [(String, Lua_Value)] 
   deriving(Eq, Show)
+
+type Recipe_Map = Map String Recipe
+
+data Ingredient = Ingredient
+  { kind :: String
+  , name :: String
+  , amount :: Int
+  } deriving (Show, Eq)
+
+data Recipe = Recipe 
+  { _name :: String
+  , _ingredients :: [Ingredient]
+  , _results :: [Ingredient]
+  } deriving (Show, Eq)
 
 whitespace :: Parser ()
 whitespace = do
@@ -84,3 +102,45 @@ lua_document =
     string "data:extend" *> whitespace *> char '(' *> whitespace *> 
       lua_parser 
     <* char ')' <* whitespace <* eof
+
+recipe_map :: Lua_Value -> Recipe_Map
+recipe_map (Lua_Array rs) = 
+  case (sequenceA $ map recipe_from_obj rs) of
+    (Just r) -> Map.fromList $ map (\rec@(Recipe n _ _) -> (n, rec)) r
+    _ -> Map.empty
+recipe_map _ = Map.empty
+
+create_recipe_map :: String -> IO Recipe_Map
+create_recipe_map file_path = do
+    f <- readFile file_path
+    case (runParser lua_document () "" f) of
+        (Right res) -> return $ recipe_map res
+        (Left _) -> return Map.empty
+
+obj_to_map :: Lua_Value -> Map String Lua_Value
+obj_to_map (Lua_Object o) = Map.fromList o
+obj_to_map _ = Map.empty
+
+ingred_from_obj :: Lua_Value -> Maybe Ingredient
+ingred_from_obj o@(Lua_Object _) = 
+  case (sequenceA $ map (\x -> Map.lookup x $ obj_to_map o) fields) of 
+    Just [(Lua_String t), (Lua_String n), (Lua_Int a)] 
+      -> Just $ Ingredient t n a
+    _ -> Nothing
+  where 
+    fields = ["type", "name", "amount"]
+ingred_from_obj _ = Nothing
+
+recipe_from_parts :: Maybe [Lua_Value] -> Maybe Recipe
+recipe_from_parts (Just [(Lua_String n), (Lua_Array is), (Lua_Array rs)]) = do
+  ingredients <- sequenceA $ map ingred_from_obj is
+  results     <- sequenceA $ map ingred_from_obj rs
+  return $ Recipe n ingredients results
+recipe_from_parts _ = Nothing
+
+recipe_from_obj :: Lua_Value -> Maybe Recipe
+recipe_from_obj o@(Lua_Object _) = recipe_from_parts ps
+  where 
+    ps = (sequenceA $ map (\x -> Map.lookup x $ obj_to_map o) fields)
+    fields = ["name", "ingredients", "results"]
+recipe_from_obj _ = Nothing
